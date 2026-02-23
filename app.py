@@ -13,7 +13,7 @@ DB_PORT     = int(os.environ.get("DB_PORT", 5432))
 DB_NAME     = os.environ.get("DB_NAME")
 DB_USER     = os.environ.get("DB_USER")
 DB_PASSWORD = os.environ.get("DB_PASSWORD")
-VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "chocoberry123")
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "")
 
 def get_db():
     return psycopg2.connect(
@@ -186,8 +186,3 @@ if __name__ == "__main__":
 
 ---
 
-**Also update `requirements.txt` on GitHub:**
-```
-flask==3.0.0
-gunicorn==21.2.0
-psycopg2-binary==2.9.11
