@@ -17,7 +17,6 @@ def save_order(order):
     try:
         order_id = str(order.get("OrderId", ""))
         
-        # Skip if exists
         cursor.execute("SELECT 1 FROM orders WHERE order_id = ?", (order_id,))
         if cursor.fetchone():
             return False
@@ -59,7 +58,6 @@ def save_order(order):
             str(order)
         ))
         
-        # Save order items
         for item in order.get("OrderItems", []):
             cursor.execute("""
                 INSERT INTO order_items (
@@ -88,7 +86,6 @@ def save_order(order):
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    # Verify token
     token = request.headers.get("X-Verify-Token", "")
     if token != VERIFY_TOKEN:
         return jsonify({"error": "Unauthorized"}), 401
@@ -96,7 +93,6 @@ def webhook():
     data = request.json
     log.info(f"Webhook received: {data}")
     
-    # Flipdish sends order inside "Body" field
     order = data.get("Body", data)
     
     if order:
@@ -115,6 +111,3 @@ def health():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-```
-
----
