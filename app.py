@@ -7,12 +7,11 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-# Supabase connection settings from Railway variables
-DB_HOST     = os.environ.get("DB_HOST")
-DB_PORT     = int(os.environ.get("DB_PORT", 5432))
-DB_NAME     = os.environ.get("DB_NAME")
-DB_USER     = os.environ.get("DB_USER")
-DB_PASSWORD = os.environ.get("DB_PASSWORD")
+DB_HOST      = os.environ.get("DB_HOST")
+DB_PORT      = int(os.environ.get("DB_PORT", 5432))
+DB_NAME      = os.environ.get("DB_NAME")
+DB_USER      = os.environ.get("DB_USER")
+DB_PASSWORD  = os.environ.get("DB_PASSWORD")
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "")
 
 def get_db():
@@ -79,7 +78,6 @@ def save_order(order):
         if not order_id:
             return False
 
-        # Check if already exists
         cursor.execute(
             "SELECT 1 FROM orders WHERE order_id = %s",
             (order_id,)
@@ -126,7 +124,6 @@ def save_order(order):
             str(order)
         ))
 
-        # Save order items
         for item in order.get("OrderItems", []):
             cursor.execute("""
                 INSERT INTO order_items (
@@ -152,7 +149,6 @@ def save_order(order):
         log.error(f"Error saving order: {e}")
         return False
 
-# Initialize database on startup
 init_db()
 
 @app.route("/webhook", methods=["POST"])
@@ -182,7 +178,3 @@ def health():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-```
-
----
-
