@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-import sqlite3
+import psycopg2
 import os
 import logging
 
@@ -7,34 +7,102 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-DB_PATH = os.environ.get("DB_PATH", "restaurant_data.db")
+# Supabase connection settings from Railway variables
+DB_HOST     = os.environ.get("DB_HOST")
+DB_PORT     = int(os.environ.get("DB_PORT", 5432))
+DB_NAME     = os.environ.get("DB_NAME")
+DB_USER     = os.environ.get("DB_USER")
+DB_PASSWORD = os.environ.get("DB_PASSWORD")
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "chocoberry123")
 
-def save_order(order):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
+def get_db():
+    return psycopg2.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD
+    )
+
+def init_db():
     try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS orders (
+                order_id TEXT PRIMARY KEY,
+                order_time TIMESTAMP,
+                property_name TEXT,
+                gross_sales REAL,
+                tax REAL,
+                tips REAL,
+                delivery_charges REAL,
+                service_charges REAL,
+                additional_charges REAL,
+                charges REAL,
+                revenue REAL,
+                refunds REAL,
+                discounts REAL,
+                dispatch_type TEXT,
+                payment_method TEXT,
+                sales_channel_type TEXT,
+                sales_channel_name TEXT,
+                is_preorder TEXT,
+                status TEXT,
+                raw_json TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS order_items (
+                id SERIAL PRIMARY KEY,
+                order_id TEXT,
+                order_time TIMESTAMP,
+                item_name TEXT,
+                category TEXT,
+                price REAL,
+                quantity INTEGER,
+                revenue REAL
+            )
+        """)
+        conn.commit()
+        conn.close()
+        log.info("Database initialized successfully!")
+    except Exception as e:
+        log.error(f"Database init error: {e}")
+
+def save_order(order):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
         order_id = str(order.get("OrderId", ""))
-        
-        cursor.execute("SELECT 1 FROM orders WHERE order_id = ?", (order_id,))
-        if cursor.fetchone():
+        if not order_id:
             return False
-        
+
+        # Check if already exists
+        cursor.execute(
+            "SELECT 1 FROM orders WHERE order_id = %s",
+            (order_id,)
+        )
+        if cursor.fetchone():
+            conn.close()
+            return False
+
         dispatch_map = {
             "Pickup": "Collection",
             "DineIn": "Dine In",
             "TableService": "Dine In"
         }
         raw_dispatch = order.get("DeliveryType", "Unknown")
-        
+
         cursor.execute("""
             INSERT INTO orders (
                 order_id, order_time, property_name, gross_sales, tax, tips,
                 delivery_charges, service_charges, additional_charges, charges,
                 revenue, refunds, discounts, dispatch_type, payment_method,
                 sales_channel_type, sales_channel_name, is_preorder, status, raw_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (order_id) DO NOTHING
         """, (
             order_id,
             order.get("PlacedTime"),
@@ -57,12 +125,14 @@ def save_order(order):
             order.get("OrderState", "Unknown"),
             str(order)
         ))
-        
+
+        # Save order items
         for item in order.get("OrderItems", []):
             cursor.execute("""
                 INSERT INTO order_items (
-                    order_id, order_time, item_name, category, price, quantity, revenue
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    order_id, order_time, item_name, category,
+                    price, quantity, revenue
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s)
             """, (
                 order_id,
                 order.get("PlacedTime"),
@@ -72,36 +142,37 @@ def save_order(order):
                 1,
                 float(item.get("PriceIncludingOptionSetItems", 0) or 0)
             ))
-        
+
         conn.commit()
-        log.info(f"New order saved: {order_id}")
+        conn.close()
+        log.info(f"New order saved to Supabase: {order_id}")
         return True
-        
+
     except Exception as e:
         log.error(f"Error saving order: {e}")
-        conn.rollback()
         return False
-    finally:
-        conn.close()
+
+# Initialize database on startup
+init_db()
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     token = request.headers.get("X-Verify-Token", "")
     if token != VERIFY_TOKEN:
         return jsonify({"error": "Unauthorized"}), 401
-    
+
     data = request.json
     log.info(f"Webhook received: {data}")
-    
+
     order = data.get("Body", data)
-    
+
     if order:
         saved = save_order(order)
         if saved:
             return jsonify({"status": "saved"}), 200
         else:
             return jsonify({"status": "already exists"}), 200
-    
+
     return jsonify({"status": "no order found"}), 200
 
 @app.route("/health", methods=["GET"])
@@ -111,3 +182,12 @@ def health():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+```
+
+---
+
+**Also update `requirements.txt` on GitHub:**
+```
+flask==3.0.0
+gunicorn==21.2.0
+psycopg2-binary==2.9.11
