@@ -76,6 +76,7 @@ def save_order(order):
 
         order_id = str(order.get("OrderId", ""))
         if not order_id:
+            log.warning("No OrderId found in payload")
             return False
 
         cursor.execute(
@@ -83,6 +84,7 @@ def save_order(order):
             (order_id,)
         )
         if cursor.fetchone():
+            log.info(f"Order {order_id} already exists, skipping")
             conn.close()
             return False
 
@@ -153,13 +155,27 @@ init_db()
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    token = request.headers.get("X-Verify-Token", "")
-    if token != VERIFY_TOKEN:
+    # Check token from header OR query parameter
+    token = request.headers.get("X-Verify-Token", "") or request.args.get("verify_token", "")
+    
+    # Log all headers so we can see exactly what Flipdish sends
+    log.info(f"Headers received: {dict(request.headers)}")
+    log.info(f"Token received: {token}")
+    log.info(f"Raw body: {request.data}")
+
+    # Only enforce token check if VERIFY_TOKEN is set
+    if VERIFY_TOKEN and token != VERIFY_TOKEN:
+        log.warning(f"Unauthorized request. Expected: {VERIFY_TOKEN}, Got: {token}")
         return jsonify({"error": "Unauthorized"}), 401
 
     data = request.json
     log.info(f"Webhook received: {data}")
 
+    if not data:
+        log.warning("Empty or invalid JSON received")
+        return jsonify({"status": "no data"}), 400
+
+    # Flipdish may wrap order in "Body" key or send it directly
     order = data.get("Body", data)
 
     if order:
@@ -167,7 +183,7 @@ def webhook():
         if saved:
             return jsonify({"status": "saved"}), 200
         else:
-            return jsonify({"status": "already exists"}), 200
+            return jsonify({"status": "already exists or skipped"}), 200
 
     return jsonify({"status": "no order found"}), 200
 
