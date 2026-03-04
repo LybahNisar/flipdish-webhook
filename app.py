@@ -76,7 +76,7 @@ def save_order(order):
 
         order_id = str(order.get("OrderId", ""))
         if not order_id:
-            log.warning("No OrderId found in payload")
+            log.warning("No OrderId found in Order object")
             return False
 
         cursor.execute(
@@ -155,17 +155,14 @@ init_db()
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    # Check token from header OR query parameter
     token = request.headers.get("X-Verify-Token", "") or request.args.get("verify_token", "")
-    
-    # Log all headers so we can see exactly what Flipdish sends
+
     log.info(f"Headers received: {dict(request.headers)}")
     log.info(f"Token received: {token}")
     log.info(f"Raw body: {request.data}")
 
-    # Only enforce token check if VERIFY_TOKEN is set
     if VERIFY_TOKEN and token != VERIFY_TOKEN:
-        log.warning(f"Unauthorized request. Expected: {VERIFY_TOKEN}, Got: {token}")
+        log.warning(f"Unauthorized. Expected: {VERIFY_TOKEN}, Got: {token}")
         return jsonify({"error": "Unauthorized"}), 401
 
     data = request.json
@@ -175,21 +172,32 @@ def webhook():
         log.warning("Empty or invalid JSON received")
         return jsonify({"status": "no data"}), 400
 
-    # Flipdish may wrap order in "Body" key or send it directly
-    order = data.get("Body", data)
+    # ✅ THE FIX: Order is nested inside Body → Order
+    body  = data.get("Body", {})
+    order = body.get("Order", {})
 
-    if order:
-        saved = save_order(order)
-        if saved:
-            return jsonify({"status": "saved"}), 200
-        else:
-            return jsonify({"status": "already exists or skipped"}), 200
+    if not order:
+        log.warning("No Order found inside Body")
+        return jsonify({"status": "no order found"}), 200
 
-    return jsonify({"status": "no order found"}), 200
+    saved = save_order(order)
+    if saved:
+        log.info(f"Order saved successfully!")
+        return jsonify({"status": "saved"}), 200
+    else:
+        return jsonify({"status": "already exists or skipped"}), 200
+
+@app.route("/webhook", methods=["GET"])
+def webhook_get():
+    return jsonify({"status": "webhook active"}), 200
 
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "running"}), 200
+
+@app.route("/", methods=["GET"])
+def index():
+    return jsonify({"service": "Chocoberry Flipdish Webhook", "status": "running"}), 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
